@@ -116,8 +116,13 @@ module Graph = struct
     in
     loop l e false
 
+  let find_roots edge_list =
+    let from_nodes = List.map (fun (x,y) -> x) edge_list in
+    let to_nodes = List.map (fun (x,y) -> y) edge_list in
+    let roots = List.filter (fun x -> not (List.mem x to_nodes)) from_nodes in
+    roots
+
   let find_leaves edge_list =
-    (* let edge_list = Hashtbl.fold (fun k v acc -> k::acc) s [] in *)
     let from_nodes = List.map (fun (x,y) -> x) edge_list in
     let to_nodes = List.map (fun (x,y) -> y) edge_list in
     let sources = List.filter (fun x -> not (List.mem x to_nodes) && not (more_than_twice from_nodes x)) from_nodes in
@@ -132,28 +137,33 @@ module Data = struct
     List.iter (fun (node, demand) -> Hashtbl.add data_demand node demand) l;
     data_demand
 
+  let init_cost l =
+    let data_cost = Hashtbl.create 1000 in
+    List.iter (fun (s,d,cost) -> Hashtbl.add data_cost (s,d) cost) l;
+    data_cost
+
   let demand_at data_demand node = Hashtbl.find data_demand node
+
+  let cost_of data_cost edge = Hashtbl.find data_cost edge
+
+
 
 end
 
-module Solution = struct
+module PrimalSolution = struct
 
   let init_solution edge_list =
-    let rec loop l s =
-      match l with
-      | [] -> s
-      | (src,dst)::t ->
-        Hashtbl.add s (src,dst) 0.0;
-        loop t s in
-    let solution = loop edge_list (Hashtbl.create 1000) in
-    solution
+    let s = Hashtbl.create 1000 in
+    List.iter (fun (x,y) -> Hashtbl.add s (x,y) 0.0) edge_list;
+    s
+
 
   let update enter enter_val leave leave_val sol =
     Hashtbl.replace sol enter enter_val;
     Hashtbl.replace sol leave leave_val
 
 
-  let compute_flow solution g_tree data_demand =
+  let compute_primal_flow primals g_tree data_demand =
     let transposed_g_tree = Graph.transpose g_tree in
     let edge_list = Graph.get_edgelist g_tree in
     let nodes = Graph.get_nodes g_tree in
@@ -184,7 +194,7 @@ module Solution = struct
       fun s ->
         let d = Hashtbl.find g_tree s in
         let supply = Data.demand_at data_demand s in
-        Hashtbl.replace solution (s,d) supply
+        Hashtbl.replace primals (s,d) supply
     ) sources;
 
     Printf.printf "--------- sources ------\n";
@@ -195,7 +205,7 @@ module Solution = struct
       fun d ->
         let s = Hashtbl.find transposed_g_tree d in
         let demand = Data.demand_at data_demand d in
-        Hashtbl.replace solution (s,d) (-.demand)
+        Hashtbl.replace primals (s,d) (-.demand)
     ) destinations;
 
     Printf.printf "--------- destinations ------\n";
@@ -204,7 +214,7 @@ module Solution = struct
 
     Printf.printf "-------------------\n";
 
-    let sol = Hashtbl.fold (fun (s,d) v acc -> (s,d,v)::acc) solution [] in
+    let sol = Hashtbl.fold (fun (s,d) v acc -> (s,d,v)::acc) primals [] in
     List.iter (
       fun (s,d,v) -> Printf.printf "(%c, %c) -> %f\n" s d v
     ) sol;
@@ -228,31 +238,31 @@ module Solution = struct
       let d_out_es = List.map (fun x -> (d,x)) d_out in
 
 
-      if (List.for_all (fun (s,d) -> Hashtbl.find solution (s,d) > 0.0) s_in_es) &&
-         (List.for_all (fun (s,d) -> Hashtbl.find solution (s,d) > 0.0) s_out_es) then
+      if (List.for_all (fun (s,d) -> Hashtbl.find primals (s,d) > 0.0) s_in_es) &&
+         (List.for_all (fun (s,d) -> Hashtbl.find primals (s,d) > 0.0) s_out_es) then
         (
         let b = Data.demand_at data_demand s in
-        let x_out = List.map (fun (s,d) -> Hashtbl.find solution (s,d)) s_out_es in
+        let x_out = List.map (fun (s,d) -> Hashtbl.find primals (s,d)) s_out_es in
         let x_out_sum = sum_list x_out in
-        let x_in = List.map (fun (s,d) -> Hashtbl.find solution (s,d)) s_in_es in
+        let x_in = List.map (fun (s,d) -> Hashtbl.find primals (s,d)) s_in_es in
         let x_in_sum = sum_list x_in in
         let sum = b -. x_out_sum +. x_in_sum in
-        Hashtbl.replace solution (s,d) sum;
+        Hashtbl.replace primals (s,d) sum;
         to_do_edges := t;
         Printf.printf "In the first one: (%c,%c), b = %f sum = %f\n" s d b sum;
         Printf.printf "x_out_sum = %f. x_in_sum = %f\n" x_out_sum x_in_sum
         )
 
-      else if (List.for_all (fun (s,d) -> Hashtbl.find solution (s,d) > 0.0) d_in_es) &&
-              (List.for_all (fun (s,d) -> Hashtbl.find solution (s,d) > 0.0) d_out_es) then
+      else if (List.for_all (fun (s,d) -> Hashtbl.find primals (s,d) > 0.0) d_in_es) &&
+              (List.for_all (fun (s,d) -> Hashtbl.find primals (s,d) > 0.0) d_out_es) then
         (
           let b = Data.demand_at data_demand d in
-          let x_out = List.map (fun (s,d) -> Hashtbl.find solution (s,d)) d_out_es in
+          let x_out = List.map (fun (s,d) -> Hashtbl.find primals (s,d)) d_out_es in
           let x_out_sum = sum_list x_out in
-          let x_in = List.map (fun (s,d) -> Hashtbl.find solution (s,d)) d_in_es in
+          let x_in = List.map (fun (s,d) -> Hashtbl.find primals (s,d)) d_in_es in
           let x_in_sum = sum_list x_in in
           let sum = (-.b) +. x_out_sum -. x_in_sum in
-          Hashtbl.replace solution (s,d) sum;
+          Hashtbl.replace primals (s,d) sum;
           to_do_edges := t;
           Printf.printf "In the second one: (%c,%c), b = %f ,sum = %f\n" s d b sum
         )
@@ -260,6 +270,64 @@ module Solution = struct
         to_do_edges := t @ [(s,d)]
 
     done
+
+end
+
+module DualSolution = struct
+
+  let init_solution node_list =
+    let s = Hashtbl.create 1000 in
+    List.iter (fun x -> Hashtbl.add s x 0.0) node_list;
+    s
+
+  let update enter enter_val leave leave_val sol =
+    Hashtbl.replace sol enter enter_val;
+    Hashtbl.replace sol leave leave_val
+
+
+  let compute_dual duals g_tree data_cost =
+
+    let g_tree_t = Graph.transpose g_tree in
+    let nodes = Graph.get_nodes g_tree in
+    let roots = Graph.find_roots (Graph.get_edgelist g_tree) in
+    let root = List.hd roots in
+    Hashtbl.replace duals root 0.0;
+
+    let rec propagate v prev foward =
+      let forward_next = List.filter (fun x -> x <> prev)  (Graph.get_adjacent_nodes g_tree v) in
+      let backward_next = List.filter (fun x -> x <> prev) (Graph.get_adjacent_nodes g_tree_t v) in
+      let y_v = Hashtbl.find duals v in
+      let y_prev = Hashtbl.find duals prev in
+
+      if foward then
+        (
+          let c =  Data.cost_of data_cost (prev,v) in
+          Hashtbl.replace duals v (y_prev +. c)
+        )
+      else
+        (
+          let c = Data.cost_of data_cost (v,prev) in
+          Hashtbl.replace duals v (y_prev -. c)
+        );
+
+      if (forward_next <> []) then
+        (
+          List.iter (fun x -> propagate x v true) forward_next
+        );
+
+      if (backward_next <> []) then
+        (
+          List.iter (fun x -> propagate x v false) backward_next
+        );
+
+      if (forward_next = [] && backward_next = []) then
+        (
+          () (* stop *)
+        )
+    in
+    let starting_nodes = Graph.get_adjacent_nodes g_tree root in
+    List.iter (fun x -> propagate x root true) starting_nodes
+
 
 
 end
@@ -270,13 +338,23 @@ let main () =
   let edges = [('a','d'); ('f','a'); ('f','b'); ('b','c'); ('g','b'); ('g','e')] in
   let g = Graph.init_graph () in
   Graph.add_edges edges g;
-  let data = Data.init_demand [('a', 0.0); ('b', 0.0); ('c', (-.6.0)); ('d', (-.6.0)); ('e', (-.2.0)); ('f', (9.0)); ('g', (5.0))] in
-  let solution = Solution.init_solution edges in
-  Solution.compute_flow solution g data;
-  let sol = Hashtbl.fold (fun (s,d) v acc -> (s,d,v)::acc) solution [] in
+  let nodes = Graph.get_nodes g in
+  let data_demand = Data.init_demand [('a', 0.0); ('b', 0.0); ('c', (-.6.0)); ('d', (-.6.0)); ('e', (-.2.0)); ('f', (9.0)); ('g', (5.0))] in
+  let data_cost = Data.init_cost [('a','d',28.0); ('f','a',56.0); ('f','b',48.0); ('b','c',65.0); ('g','b',33.0); ('g','e',19.0)] in
+  let primals = PrimalSolution.init_solution edges in
+  PrimalSolution.compute_primal_flow primals g data_demand;
+  let duals = DualSolution.init_solution nodes in
+  DualSolution.compute_dual duals g data_cost;
+
+  let sol_primal = Hashtbl.fold (fun (s,d) v acc -> (s,d,v)::acc) primals [] in
   List.iter (
     fun (s,d,v) -> Printf.printf "(%c, %c) -> %f\n" s d v
-  ) sol
+  ) sol_primal;
+
+  let sol_dual = Hashtbl.fold (fun node v acc -> (node,v)::acc) duals [] in
+  List.iter (
+    fun (node,v) -> Printf.printf "Node%c -> %f\n" node v
+  ) sol_dual
 
   (* let und_g = Graph.to_undirected g in
   let cycle = Graph.detect_cycle und_g 1 in
