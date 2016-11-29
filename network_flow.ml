@@ -73,7 +73,7 @@ module Graph = struct
       ) neighbors
     in
 
-    explore g start (-1) [];
+    explore g start ('z') [];
     !cycle
 
   let get_edge_dependency edge_list g_tree =
@@ -145,8 +145,6 @@ module Data = struct
   let demand_at data_demand node = Hashtbl.find data_demand node
 
   let cost_of data_cost edge = Hashtbl.find data_cost edge
-
-
 
 end
 
@@ -328,10 +326,48 @@ module DualSolution = struct
     let starting_nodes = Graph.get_adjacent_nodes g_tree root in
     List.iter (fun x -> propagate x root true) starting_nodes
 
+end
+
+module DualSlack = struct
+
+  let init_slack edges =
+    let s = Hashtbl.create 1000 in
+    List.iter (fun (x,y) -> Hashtbl.add s (x,y) 0.0) edges;
+    s
+
+
+
+  let compute_slack slacks duals cost non_tree_edges =
+    List.iter (
+      fun (s,d) ->
+        let y_i = Hashtbl.find duals s in
+        let y_j = Hashtbl.find duals d in
+        let c_ij = Hashtbl.find cost (s,d) in
+        let value = y_i +. c_ij -. y_j in
+        Hashtbl.replace slacks (s,d) value
+    )
+    non_tree_edges
 
 
 end
 
+let check_complementary_slack edges primals slacks =
+  let results = List.map
+    (fun (i,j) ->
+       let x_ij = Hashtbl.find primals (i,j) in
+       let z_ij = Hashtbl.find slacks (i,j) in
+       if (x_ij > 0 && z_ij = 0) || (x_ij = 0 && z_ij >= 0) then
+         true
+       else
+         false
+    )
+    edges in
+  List.for_all (fun b -> b) results
+
+let select_entering_edge non_tree_edges slacks =
+  List.hd (List.filter (fun (i,j) -> (Hashtbl.find slacks (i,j)) < 0 ) non_tree_edges)
+
+let select_leaving_edge = ()
 
 
 let main () =
@@ -354,11 +390,11 @@ let main () =
   let sol_dual = Hashtbl.fold (fun node v acc -> (node,v)::acc) duals [] in
   List.iter (
     fun (node,v) -> Printf.printf "Node%c -> %f\n" node v
-  ) sol_dual
+  ) sol_dual;
 
-  (* let und_g = Graph.to_undirected g in
-  let cycle = Graph.detect_cycle und_g 1 in
-  List.iter (fun x -> Printf.printf " %d ->" x) cycle *)
+  let und_g = Graph.to_undirected g in
+  let cycle = Graph.detect_cycle und_g 'a' in
+  List.iter (fun x -> Printf.printf " %c ->" x) cycle
 
 
 let () = main ()
