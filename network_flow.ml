@@ -6,6 +6,14 @@ module Graph = struct
   let add_edges edge_list g = List.iter (fun (s,d) -> Hashtbl.add g s d) edge_list
   let add_edge edge g = let (i,j) = edge in Hashtbl.add g i j
 
+  let remove_edge_tree edge g_tree =
+    let (i,j) = edge in
+    let all_nodes = Hashtbl.find_all g_tree i in
+    List.iter
+      (fun node -> Hashtbl.remove g_tree i) all_nodes; (* First remove everything *)
+    List.iter
+      (fun node -> if node <> j then Hashtbl.add g_tree i node) all_nodes (* Then put them back except the node j *)
+
   let get_edgelist g = Hashtbl.fold (fun s t l -> (s,t) :: l) g []
   let get_adjacent_nodes g v = Hashtbl.find_all g v
 
@@ -168,9 +176,22 @@ module PrimalSolution = struct
     s
 
 
-  let update enter enter_val leave leave_val sol =
-    Hashtbl.replace sol enter enter_val;
-    Hashtbl.replace sol leave leave_val
+  let update primals amount same opposite =
+    List.iter
+      (
+        fun (i,j) ->
+          Printf.printf "In primal update --> (%d,%d) \n" i j;
+          let value = Hashtbl.find primals (i,j) in
+          Hashtbl.replace primals (i,j) (value +. amount)
+      )
+      same;
+      List.iter
+        (
+          fun (i,j) ->
+            let value = Hashtbl.find primals (i,j) in
+            Hashtbl.replace primals (i,j) (value -. amount)
+        )
+      opposite
 
 
   let compute_primal_flow primals g_tree data_demand =
@@ -196,9 +217,6 @@ module PrimalSolution = struct
 
     let (sources, destinations) = Graph.find_leaves edge_list in
     let edges_inside = List.filter (fun (s,d) -> not ((List.mem s sources) || (List.mem d destinations))) edge_list in
-    let neither = List.filter (fun x -> not (List.mem x sources) && not (List.mem x destinations)) nodes in
-    let edge_dependency = Graph.get_edge_dependency edge_list g_tree in
-
 
     List.iter (
       fun s ->
@@ -209,7 +227,6 @@ module PrimalSolution = struct
 
     Printf.printf "--------- sources ------\n";
       List.iter (fun x -> Printf.printf "%d\n" x) sources;
-    Printf.printf "---------------\n";
 
     List.iter (
       fun d ->
@@ -219,10 +236,9 @@ module PrimalSolution = struct
     ) destinations;
 
     Printf.printf "--------- destinations ------\n";
-      List.iter (fun x -> Printf.printf "%d\n" x) destinations;
+    List.iter (fun x -> Printf.printf "%d\n" x) destinations;
     Printf.printf "---------------\n";
 
-    Printf.printf "-------------------\n";
 
     let sol = Hashtbl.fold (fun (s,d) v acc -> (s,d,v)::acc) primals [] in
     List.iter (
@@ -236,7 +252,7 @@ module PrimalSolution = struct
 
     while (!to_do_edges <> []) do
       let (s,d)::t = !to_do_edges in
-      Printf.printf "Now this edge --> (%d, %d)\n" s d;
+      (* Printf.printf "Now this edge --> (%d, %d)\n" s d; *)
       let s_in = Graph.get_adjacent_nodes transposed_g_tree s in
       let s_out = List.filter (fun x -> x <> d) (Graph.get_adjacent_nodes g_tree s) in
       let s_in_es = List.map (fun x -> (x,s)) s_in in
@@ -259,8 +275,8 @@ module PrimalSolution = struct
         let sum = b -. x_out_sum +. x_in_sum in
         Hashtbl.replace primals (s,d) sum;
         to_do_edges := t;
-        Printf.printf "In the first one: (%d,%d), b = %f sum = %f\n" s d b sum;
-        Printf.printf "x_out_sum = %f. x_in_sum = %f\n" x_out_sum x_in_sum
+        (* Printf.printf "In the first one: (%d,%d), b = %f sum = %f\n" s d b sum;
+        Printf.printf "x_out_sum = %f. x_in_sum = %f\n" x_out_sum x_in_sum *)
         )
 
       else if (List.for_all (fun (s,d) -> Hashtbl.find primals (s,d) > 0.0) d_in_es) &&
@@ -298,7 +314,6 @@ module DualSolution = struct
   let compute_dual duals g_tree data_cost =
 
     let g_tree_t = Graph.transpose g_tree in
-    let nodes = Graph.get_nodes g_tree in
     let roots = Graph.find_roots (Graph.get_edgelist g_tree) in
     let root = List.hd roots in
     Hashtbl.replace duals root 0.0;
@@ -306,7 +321,6 @@ module DualSolution = struct
     let rec propagate v prev foward =
       let forward_next = List.filter (fun x -> x <> prev)  (Graph.get_adjacent_nodes g_tree v) in
       let backward_next = List.filter (fun x -> x <> prev) (Graph.get_adjacent_nodes g_tree_t v) in
-      let y_v = Hashtbl.find duals v in
       let y_prev = Hashtbl.find duals prev in
 
       if foward then
@@ -347,8 +361,6 @@ module DualSlack = struct
     List.iter (fun (x,y) -> Hashtbl.add s (x,y) 0.0) edges;
     s
 
-
-
   let compute_slack slacks duals cost non_tree_edges =
     List.iter (
       fun (s,d) ->
@@ -360,19 +372,20 @@ module DualSlack = struct
     )
     non_tree_edges
 
-
 end
+
 
 let check_complementary_slack edges primals slacks =
   let results = List.map
-    (fun (i,j) ->
-       let x_ij = Hashtbl.find primals (i,j) in
-       let z_ij = Hashtbl.find slacks (i,j) in
-       if (x_ij > 0 && z_ij = 0) || (x_ij = 0 && z_ij >= 0) then
-         true
-       else
-         false
-    )
+      (fun (i,j) ->
+         Printf.printf "check complementarily --> (%d,%d) \n" i j;
+         let x_ij = Hashtbl.find primals (i,j) in
+         let z_ij = Hashtbl.find slacks (i,j) in
+         if (x_ij = 0.0 && z_ij >= 0.0) then
+          true
+         else
+          false
+      )
     edges in
   List.for_all (fun b -> b) results
 
@@ -404,6 +417,7 @@ let rec select_smallest edges_with_flow smallest =
 
 
 let select_leaving_edge g primals entering_edge cycle_nodes =
+  let same = ref [] in
   let opposite = ref [] in
   let forwards = ref [] in
   let backwards = ref [] in
@@ -413,20 +427,30 @@ let select_leaving_edge g primals entering_edge cycle_nodes =
   List.iter (
     fun (i,j) ->
       if Graph.check_edge g (i,j) then
-        forwards := (i,j)::!forwards
+        (Printf.printf "Into forward edge --> (%d,%d) \n" i j;
+        forwards := (i,j)::!forwards)
       else
-        backwards := (i,j)::!backwards
+        (Printf.printf "Into backward edge --> (%d,%d) \n" j i;
+        backwards := (j,i)::!backwards)
   )
     cycle_edges;
 
   if List.mem entering_edge !forwards then
-    opposite := !backwards
+    (
+      same := !forwards;
+      opposite := !backwards
+    )
   else
-    opposite := !forwards
+    (
+      same := !backwards;
+      opposite := !forwards
+    )
   ;
   let candidate = List.map (fun (i,j) -> (i,j, (Hashtbl.find primals (i,j))) ) !opposite in
   let leaving  = select_smallest candidate (0,0,10000000.0) in
-  leaving
+  leaving,!same,!opposite
+
+
 
 
 let main () =
@@ -439,45 +463,79 @@ let main () =
   Graph.add_edges edges g;
   Graph.add_edges tree_edges g_tree;
 
-  let non_tree_edges = Graph.get_non_tree_edges g g_tree in
+  let non_tree_edges = ref [] in
+  non_tree_edges := Graph.get_non_tree_edges g g_tree;
   let nodes = Graph.get_nodes g in
 
   let data_demand = Data.init_demand [(1, 0.0); (2, 0.0); (3, (-.6.0)); (4, (-.6.0)); (5, (-.2.0)); (6, (9.0)); (7, (5.0))] in
-  let data_cost = Data.init_cost [(1,4,28.0); (6,1,56.0); (6,2,48.0); (2,3,65.0); (7,2,33.0); (7,5,19.0)] in
+  let data_cost = Data.init_cost [(1,3,48.0); (1,4,28.0); (1,5,10.0); (2,1,7.0); (2,3,65.0); (2,5,7.0); (4,2,38.0); (4,5,15.0); (6,1,56.0); (6,2,48.0); (6,3,108.0); (6,7,24.0);(7,2,33.0); (7,5,19.0)] in
 
 
   let primals = PrimalSolution.init_solution edges in
   PrimalSolution.compute_primal_flow primals g_tree data_demand;
   let duals = DualSolution.init_solution nodes in
   DualSolution.compute_dual duals g_tree data_cost;
-  let slacks = DualSlack.init_slack non_tree_edges in
-  DualSlack.compute_slack slacks duals data_cost non_tree_edges;
+  let slacks = DualSlack.init_slack edges in
+  DualSlack.compute_slack slacks duals data_cost !non_tree_edges;
 
-  let sol_primal = Hashtbl.fold (fun (s,d) v acc -> (s,d,v)::acc) primals [] in
-  List.iter (
-    fun (s,d,v) -> Printf.printf "(%d, %d) -> %f\n" s d v
-  ) sol_primal;
+  let entering_edge = ref (0,0) in
+  let leaving_edge = ref (0,0) in
 
-  let sol_dual = Hashtbl.fold (fun node v acc -> (node,v)::acc) duals [] in
-  List.iter (
-    fun (node,v) -> Printf.printf "Node%d -> %f\n" node v
-  ) sol_dual;
+  while not (check_complementary_slack !non_tree_edges primals slacks) do
+
+    let tree_edges = Graph.get_edgelist g_tree in
+    non_tree_edges := Graph.get_non_tree_edges g g_tree;
+    Graph.print_edges tree_edges;
+
+    entering_edge := select_entering_edge !non_tree_edges slacks;
+
+    let (i,j) = !entering_edge in
+    Printf.printf "entering edge --> (%d,%d) \n" i j;
+
+    Graph.add_edge !entering_edge g_tree;
+    let und_g_tree = Graph.to_undirected g_tree in
+    let cycle = Graph.detect_cycle und_g_tree 1 in
+
+    Printf.printf "---------- cycle -------\n";
+    List.iter (fun x -> Printf.printf " %d -> " x) cycle;
+
+    Printf.printf "\n-----------------\n";
+
+    let temp,same,opposite = select_leaving_edge g primals !entering_edge cycle in
+    leaving_edge := temp;
 
 
+    let (x,y) = !leaving_edge in
+    Printf.printf "leaving edge --> (%d,%d) \n" x y;
 
-  let entering_edge = select_entering_edge non_tree_edges slacks in
-  Graph.add_edge entering_edge g_tree;
-  let und_g_tree = Graph.to_undirected g_tree in
-  let cycle = Graph.detect_cycle und_g_tree 1 in
-  List.iter (fun x -> Printf.printf " %d ->" x) cycle;
+    let amount = Hashtbl.find primals !leaving_edge in
 
-  let leaving_edge = select_leaving_edge g primals entering_edge cycle in
-  let (i,j) = entering_edge in
-  let (x,y) = leaving_edge in
-  Printf.printf "entering edge --> (%d,%d) \n" i j;
-  Printf.printf "leaving edge --> (%d,%d) \n" x y
+    Graph.remove_edge_tree !leaving_edge g_tree;
+
+    PrimalSolution.update primals amount same opposite;
+    DualSolution.compute_dual duals g_tree data_cost;
 
 
+    non_tree_edges := Graph.get_non_tree_edges g g_tree;
+    DualSlack.compute_slack slacks duals data_cost !non_tree_edges;
+
+
+    let sol_primal = Hashtbl.fold (fun (s,d) v acc -> (s,d,v)::acc) primals [] in
+    List.iter (
+      fun (s,d,v) -> Printf.printf "primal (%d, %d) -> %f\n" s d v
+    ) sol_primal;
+
+    let sol_dual = Hashtbl.fold (fun node v acc -> (node,v)::acc) duals [] in
+    List.iter (
+      fun (node,v) -> Printf.printf "dual Node%d -> %f\n" node v
+    ) sol_dual;
+
+    let sol_slack = Hashtbl.fold (fun (s,d) v acc -> (s,d,v)::acc) slacks [] in
+    List.iter (
+      fun (s,d,v) -> Printf.printf "slacks (%d, %d) -> %f\n" s d v
+    ) sol_slack;
+
+  done
 
 
 
