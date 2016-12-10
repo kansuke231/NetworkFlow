@@ -429,6 +429,11 @@ let objective primals costs =
   if obj = 0.0 then true else false
 
 
+let primals_to_tree primals =
+  Hashtbl.fold (fun (i,j) flow acc -> (i,j,flow)::acc) primals []
+  |> List.filter (fun (i,j,flow) -> flow > 0.0)
+  |> List.map (fun (i,j,flow) -> (i,j))
+
 
 let solve primals duals slacks g g_tree non_tree_edges costs demands =
   let entering_edge = ref (0,0) in
@@ -490,9 +495,8 @@ let solve primals duals slacks g g_tree non_tree_edges costs demands =
 
     DualSlack.update slacks slack_amount (!entering_edge::bridge_same) bridge_opposite;
 
+  done
 
-  done;
-  primals
 
 let phase1 edges demands =
   let transit = -1 in
@@ -503,18 +507,11 @@ let phase1 edges demands =
 
   let data_demand = Data.init_demand ((transit, 0.0)::demands) in
 
-  (* let supplyers_temp = List.filter (fun (node,demand) -> if demand > 0.0 then true else false) demands
-                  |> List.map (fun (node, demand) -> node) in
-
-  let consumers = List.filter (fun (node,demand) -> if demand <= 0.0 then true else false) demands
-                  |> List.map (fun (node, demand) -> node) in *)
-
   let supplyers = List.filter (fun (node,demand) -> if demand > 0.0 then true else false) demands
                        |> List.map (fun (node, demand) -> node) in
 
   let consumers = List.filter (fun (node,demand) -> if demand <= 0.0 && node <> transit then true else false) demands
                   |> List.map (fun (node, demand) -> node) in
-
 
 
   let artificial_edges = (List.map (fun s -> (s,transit)) supplyers) @ ((List.map (fun c -> (transit,c)) consumers)) in
@@ -552,24 +549,15 @@ let phase1 edges demands =
   Graph.print_edges (Graph.get_edgelist g);
   Printf.printf "---------\n";
 
+  (* run the primal simplex *)
+  solve primals duals slacks g g_tree non_tree_edges data_cost data_demand;
 
-  let answer_primal = solve primals duals slacks g g_tree non_tree_edges data_cost data_demand in
-
-  if objective answer_primal data_cost then
-    answer_primal
+  if objective primals data_cost then
+    primals_to_tree primals
   else
     failwith "The network is infeasible"
 
-
-
-let main () =
-
-  let edges = [(1,3); (1,4); (1,5); (2,1); (2,3); (2,5); (4,2); (4,5); (6,1); (6,2); (6,3); (6,7); (7,2); (7,5)] in
-  let demands = [(1, 0.0); (2, 0.0); (3, (-.6.0)); (4, (-.6.0)); (5, (-.2.0)); (6, (9.0)); (7, (5.0))] in
-  let costs = [(1,3,48.0); (1,4,28.0); (1,5,10.0); (2,1,7.0); (2,3,65.0); (2,5,7.0); (4,2,38.0); (4,5,15.0); (6,1,56.0); (6,2,48.0); (6,3,108.0); (6,7,24.0);(7,2,33.0); (7,5,19.0)] in
-
-  let tree_edges = [(1,4); (6,1); (6,2); (2,3); (7,2); (7,5)] in
-
+let phase2 edges tree_edges demands costs =
   let g = Graph.init_graph () in
   let g_tree = Graph.init_graph () in
   Graph.add_edges edges g;
@@ -590,9 +578,8 @@ let main () =
   let slacks = DualSlack.init_slack edges in
   DualSlack.compute_slack slacks duals data_cost !non_tree_edges;
 
-
-
-  let answer_primal =   phase1 edges demands in (* solve primals duals slacks g g_tree non_tree_edges data_cost data_demand in   *)
+  (* run the primal simplex *)
+  solve primals duals slacks g g_tree non_tree_edges data_cost data_demand;
 
   let sol_primal = Hashtbl.fold (fun (s,d) v acc -> (s,d,v)::acc) primals [] in
   List.iter (
@@ -602,13 +589,18 @@ let main () =
   let sol_slacks = Hashtbl.fold (fun (s,d) v acc -> (s,d,v)::acc) slacks [] in
   List.iter (
     fun (s,d,v) -> Printf.printf "slacks (%d, %d) -> %f\n" s d v
-  ) sol_slacks;
+  ) sol_slacks
 
-  let sol_primal_answer = Hashtbl.fold (fun (s,d) v acc -> (s,d,v)::acc) answer_primal [] in
-  List.iter (
-    fun (s,d,v) -> Printf.printf "answer_primal primal (%d, %d) -> %f\n" s d v
-  ) sol_primal_answer
 
+let main () =
+
+  let edges = [(1,3); (1,4); (1,5); (2,1); (2,3); (2,5); (4,2); (4,5); (6,1); (6,2); (6,3); (6,7); (7,2); (7,5)] in
+  let demands = [(1, 0.0); (2, 0.0); (3, (-.6.0)); (4, (-.6.0)); (5, (-.2.0)); (6, (9.0)); (7, (5.0))] in
+  let costs = [(1,3,48.0); (1,4,28.0); (1,5,10.0); (2,1,7.0); (2,3,65.0); (2,5,7.0); (4,2,38.0); (4,5,15.0); (6,1,56.0); (6,2,48.0); (6,3,108.0); (6,7,24.0);(7,2,33.0); (7,5,19.0)] in
+
+  (*  obtain an initial feasible solution by phase 1 algorithm *)
+  let tree_edges = phase1 edges demands in
+  phase2 edges tree_edges demands costs
 
 
 let () = main ()
