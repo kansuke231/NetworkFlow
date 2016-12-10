@@ -495,20 +495,28 @@ let solve primals duals slacks g g_tree non_tree_edges costs demands =
   primals
 
 let phase1 edges demands =
+  let transit = -1 in
   let g = Graph.init_graph () in
   Graph.add_edges edges g;
 
-  let nodes = Graph.get_nodes g in
+  let nodes = transit::(Graph.get_nodes g) in
 
-  let data_demand = Data.init_demand demands in
-  let supplyers_temp = List.filter (fun (node,demand) -> if demand > 0.0 then true else false) demands
+  let data_demand = Data.init_demand ((transit, 0.0)::demands) in
+
+  (* let supplyers_temp = List.filter (fun (node,demand) -> if demand > 0.0 then true else false) demands
                   |> List.map (fun (node, demand) -> node) in
 
   let consumers = List.filter (fun (node,demand) -> if demand <= 0.0 then true else false) demands
+                  |> List.map (fun (node, demand) -> node) in *)
+
+  let supplyers = List.filter (fun (node,demand) -> if demand > 0.0 then true else false) demands
+                       |> List.map (fun (node, demand) -> node) in
+
+  let consumers = List.filter (fun (node,demand) -> if demand <= 0.0 && node <> transit then true else false) demands
                   |> List.map (fun (node, demand) -> node) in
 
-  let transit = List.hd supplyers_temp in
-  let supplyers = List.tl supplyers_temp in
+
+
   let artificial_edges = (List.map (fun s -> (s,transit)) supplyers) @ ((List.map (fun c -> (transit,c)) consumers)) in
 
   let additional_edges = List.filter (fun (i,j) -> not (List.mem (i,j) edges)) artificial_edges in
@@ -584,7 +592,7 @@ let main () =
 
 
 
-  let answer_primal = solve primals duals slacks g g_tree non_tree_edges data_cost data_demand in  (*  phase1 edges demands in*)
+  let answer_primal =   phase1 edges demands in (* solve primals duals slacks g g_tree non_tree_edges data_cost data_demand in   *)
 
   let sol_primal = Hashtbl.fold (fun (s,d) v acc -> (s,d,v)::acc) primals [] in
   List.iter (
