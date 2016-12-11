@@ -307,17 +307,14 @@ module DualSolution = struct
           let c = Data.cost_of data_cost (v,prev) in
           Hashtbl.replace duals v (y_prev -. c)
         );
-
       if (forward_next <> []) then
         (
           List.iter (fun x -> propagate x v true) forward_next
         );
-
       if (backward_next <> []) then
         (
           List.iter (fun x -> propagate x v false) backward_next
         );
-
       if (forward_next = [] && backward_next = []) then
         (
           () (* stop *)
@@ -441,19 +438,7 @@ let solve primals duals slacks g g_tree non_tree_edges costs demands =
 
   while not (check_complementary_slack !non_tree_edges primals slacks) do
 
-    let tree_edges = Graph.get_edgelist g_tree in
     non_tree_edges := Graph.get_non_tree_edges g g_tree;
-
-    Printf.printf "Tree solution is: \n";
-    Graph.print_edges tree_edges;
-
-    Printf.printf "Non-tree edges:\n";
-    Graph.print_edges !non_tree_edges;
-
-    let sol_slacks = Hashtbl.fold (fun (s,d) v acc -> (s,d,v)::acc) slacks [] in
-    List.iter (
-      fun (s,d,v) -> Printf.printf "sol_slacks (%d, %d) -> %f\n" s d v
-    ) sol_slacks;
 
     entering_edge := select_entering_edge !non_tree_edges slacks;
 
@@ -467,7 +452,7 @@ let solve primals duals slacks g g_tree non_tree_edges costs demands =
     Printf.printf "---------- cycle -------\n";
     List.iter (fun x -> Printf.printf " %d -> " x) cycle;
 
-    Printf.printf "\n-----------------\n";
+    Printf.printf "\n------------------------\n";
 
     let temp,same,opposite = select_leaving_edge g primals !entering_edge cycle in
     leaving_edge := temp;
@@ -491,14 +476,13 @@ let solve primals duals slacks g g_tree non_tree_edges costs demands =
     let bridge_opposite = List.filter (fun (i,j) -> (List.mem j left_group)&&(List.mem i right_group)) !non_tree_edges in
 
     PrimalSolution.update primals amount same opposite;
-    (* DualSolution.compute_dual duals g_tree costs; *)
-
     DualSlack.update slacks slack_amount (!entering_edge::bridge_same) bridge_opposite;
 
   done
 
 
 let phase1 edges demands =
+  Printf.printf "\nStarting phase 1...... \n\n";
   let transit = -1 in
   let g = Graph.init_graph () in
   Graph.add_edges edges g;
@@ -541,14 +525,6 @@ let phase1 edges demands =
   let slacks = DualSlack.init_slack (edges @ additional_edges) in
   DualSlack.compute_slack slacks duals data_cost !non_tree_edges;
 
-  Printf.printf "------- g tree --\n";
-  Graph.print_edges (Graph.get_edgelist g_tree);
-  Printf.printf "---------\n";
-
-  Printf.printf "------- g --\n";
-  Graph.print_edges (Graph.get_edgelist g);
-  Printf.printf "---------\n";
-
   (* run the primal simplex *)
   solve primals duals slacks g g_tree non_tree_edges data_cost data_demand;
 
@@ -558,6 +534,7 @@ let phase1 edges demands =
     failwith "The network is infeasible"
 
 let phase2 edges tree_edges demands costs =
+  Printf.printf "\n\nStarting phase 2...... \n\n";
   let g = Graph.init_graph () in
   let g_tree = Graph.init_graph () in
   Graph.add_edges edges g;
@@ -581,6 +558,7 @@ let phase2 edges tree_edges demands costs =
   (* run the primal simplex *)
   solve primals duals slacks g g_tree non_tree_edges data_cost data_demand;
 
+  Printf.printf "\n\nSolution found!!!\n\n";
   let sol_primal = Hashtbl.fold (fun (s,d) v acc -> (s,d,v)::acc) primals [] in
   List.iter (
     fun (s,d,v) -> Printf.printf "primals primal (%d, %d) -> %f\n" s d v
@@ -594,12 +572,16 @@ let phase2 edges tree_edges demands costs =
 
 let main () =
 
+  (* nodes should be indexed by positive integers, namely 1,2,...,n because some parts of the code use -1 or 0 for virtual nodes. *)
   let edges = [(1,3); (1,4); (1,5); (2,1); (2,3); (2,5); (4,2); (4,5); (6,1); (6,2); (6,3); (6,7); (7,2); (7,5)] in
   let demands = [(1, 0.0); (2, 0.0); (3, (-.6.0)); (4, (-.6.0)); (5, (-.2.0)); (6, (9.0)); (7, (5.0))] in
   let costs = [(1,3,48.0); (1,4,28.0); (1,5,10.0); (2,1,7.0); (2,3,65.0); (2,5,7.0); (4,2,38.0); (4,5,15.0); (6,1,56.0); (6,2,48.0); (6,3,108.0); (6,7,24.0);(7,2,33.0); (7,5,19.0)] in
 
   (*  obtain an initial feasible solution by phase 1 algorithm *)
   let tree_edges = phase1 edges demands in
+  Printf.printf "\nInitial feasible solution:\n";
+  Graph.print_edges tree_edges;
+  Printf.printf "\n";
   phase2 edges tree_edges demands costs
 
 
